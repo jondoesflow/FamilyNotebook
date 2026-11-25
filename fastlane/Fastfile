@@ -1,0 +1,80 @@
+require "base64"
+require "yaml"
+
+default_platform(:ios)
+
+platform :ios do
+  desc "Sign with an App Store profile and upload to TestFlight"
+  lane :beta do
+    setup_ci
+
+    settings = YAML.load_file(File.expand_path("../project.yml", __dir__))["targets"]["FamilyNotebook"]["settings"]["base"]
+    bundle_id = ENV["APP_BUNDLE_ID"] || settings["APP_BUNDLE_ID"]
+    container = ENV["CLOUDKIT_CONTAINER"] || settings["CLOUDKIT_CONTAINER"]
+    team_id = ENV.fetch("TEAM_ID")
+    cloudkit_env = ENV["CLOUDKIT_ENV"].to_s.empty? ? "Production" : ENV["CLOUDKIT_ENV"]
+
+    key_content = ENV.fetch("ASC_KEY_P8")
+    key_content = Base64.decode64(key_content) unless key_content.include?("BEGIN PRIVATE KEY")
+
+    api_key = app_store_connect_api_key(
+      key_id: ENV.fetch("ASC_KEY_ID"),
+      issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+      key_content: key_content,
+      in_house: false
+    )
+
+    # Creates (first run) or fetches the Apple Distribution certificate + App Store profile.
+    # They are stored AES-encrypted with MATCH_PASSWORD on the "match-certificates" branch.
+    repo = ENV.fetch("GITHUB_REPOSITORY")
+    match(
+      type: "appstore",
+      app_identifier: bundle_id,
+      team_id: team_id,
+      api_key: api_key,
+      readonly: false,
+      storage_mode: "git",
+      git_url: "https://github.com/#{repo}.git",
+      git_branch: "match-certificates",
+      git_basic_authorization: Base64.strict_encode64("x-access-token:#{ENV.fetch('GITHUB_TOKEN')}"),
+      shallow_clone: true
+    )
+
+    profile_name = ENV["sig_#{bundle_id}_appstore_profile-name"] || ENV["sigh_#{bundle_id}_appstore_profile-name"]
+    UI.user_error!("Could not find provisioning profile name from match") if profile_name.to_s.empty?
+
+    xcargs = [
+      "DEVELOPMENT_TEAM=#{team_id}",
+      "CODE_SIGN_STYLE=Manual",
+      "CODE_SIGN_IDENTITY='Apple Distribution'",
+      "PROVISIONING_PROFILE_SPECIFIER='#{profile_name}'",
+      "APP_BUNDLE_ID=#{bundle_id}",
+      "CLOUDKIT_CONTAINER=#{container}",
+      "CLOUDKIT_ENV=#{cloudkit_env}",
+      "APS_ENV=production",
+      "CURRENT_PROJECT_VERSION=#{ENV.fetch('BUILD_NUMBER', '1')}"
+    ].join(" ")
+
+    build_app(
+      project: "FamilyNotebook.xcodeproj",
+      scheme: "FamilyNotebook",
+      configuration: "Release",
+      export_method: "app-store",
+      xcargs: xcargs,
+      export_options: {
+        signingStyle: "manual",
+        teamID: team_id,
+        provisioningProfiles: { bundle_id => profile_name },
+        iCloudContainerEnvironment: cloudkit_env
+      },
+      output_directory: "build",
+      clean: true
+    )
+
+    upload_to_testflight(
+      api_key: api_key,
+      skip_waiting_for_build_processing: true,
+      changelog: "Build #{ENV.fetch('BUILD_NUMBER', '1')} (iCloud: #{cloudkit_env})"
+    )
+  end
+end

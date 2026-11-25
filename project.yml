@@ -1,0 +1,77 @@
+name: FamilyNotebook
+
+options:
+  bundleIdPrefix: com.jondoesflow
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+
+settings:
+  base:
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+
+targets:
+  FamilyNotebook:
+    type: application
+    platform: iOS
+    sources:
+      - path: FamilyNotebook
+        excludes:
+          - "Supporting/Info.plist"
+    scheme:
+      gatherCoverageData: false
+    settings:
+      base:
+        # ---- Change these three if you use a different bundle ID / iCloud container ----
+        APP_BUNDLE_ID: com.jondoesflow.FamilyNotebook
+        CLOUDKIT_CONTAINER: iCloud.com.jondoesflow.FamilyNotebook
+        # Development while you set up iCloud, Production afterwards (see docs/PUBLISHING.md)
+        CLOUDKIT_ENV: Production
+        APS_ENV: production
+        # -------------------------------------------------------------------------------
+        PRODUCT_BUNDLE_IDENTIFIER: $(APP_BUNDLE_ID)
+        PRODUCT_NAME: FamilyNotebook
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        CODE_SIGN_ENTITLEMENTS: FamilyNotebook/Supporting/FamilyNotebook.entitlements
+        ENABLE_PREVIEWS: YES
+        GENERATE_INFOPLIST_FILE: NO
+        SUPPORTS_MACCATALYST: NO
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+    info:
+      path: FamilyNotebook/Supporting/Info.plist
+      properties:
+        CFBundleDisplayName: Notebook
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSRequiresIPhoneOS: true
+        ITSAppUsesNonExemptEncryption: false
+        CKSharingSupported: true
+        CloudKitContainerID: $(CLOUDKIT_CONTAINER)
+        CloudKitEnvironment: $(CLOUDKIT_ENV)
+        NSFaceIDUsageDescription: Unlock private notebooks with Face ID.
+        UIBackgroundModes: [remote-notification]
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    entitlements:
+      path: FamilyNotebook/Supporting/FamilyNotebook.entitlements
+      properties:
+        aps-environment: $(APS_ENV)
+        com.apple.developer.icloud-container-identifiers:
+          - $(CLOUDKIT_CONTAINER)
+        com.apple.developer.icloud-services:
+          - CloudKit
+        com.apple.developer.icloud-container-environment: $(CLOUDKIT_ENV)

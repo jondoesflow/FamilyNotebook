@@ -1,0 +1,2 @@
+# Values come from environment variables / GitHub secrets (see docs/PUBLISHING.md).
+team_id(ENV["TEAM_ID"]) if ENV["TEAM_ID"]
