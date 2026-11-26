@@ -202,7 +202,7 @@ struct NotebookFormView: View {
     private func save() {
         let nb = notebook ?? Notebook.create(in: context, title: title, kind: kind, cover: cover)
         nb.title = title.trimmingCharacters(in: .whitespaces)
-        nb.coverID = cover.rawValue
+        nb.coverID = cover.id
         nb.coverPhoto = cover == .photo ? photo : nil
         nb.updatedAt = .now
         if kind == .trip {

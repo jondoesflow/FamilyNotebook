@@ -91,7 +91,7 @@ extension Notebook {
         nb.uuid = UUID()
         nb.title = title
         nb.notebookKind = kind
-        nb.coverID = cover.rawValue
+        nb.coverID = cover.id
         nb.createdAt = .now
         nb.updatedAt = .now
         nb.sortIndex = -Date.now.timeIntervalSince1970
