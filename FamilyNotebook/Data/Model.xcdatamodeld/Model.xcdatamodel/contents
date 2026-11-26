@@ -10,7 +10,7 @@
         <attribute name="updatedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="sortIndex" optional="YES" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="isArchived" optional="YES" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
-        <attribute name="isLocked" optional="YES" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
+        <attribute name="pinHash" optional="YES" attributeType="String"/>
         <attribute name="tripStart" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="tripEnd" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="currency" optional="YES" attributeType="String"/>
@@ -31,15 +31,26 @@
         <attribute name="isStarred" optional="YES" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
         <attribute name="trashedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="lastEditor" optional="YES" attributeType="String"/>
+        <attribute name="pinHash" optional="YES" attributeType="String"/>
         <attribute name="sortIndex" optional="YES" attributeType="Double" defaultValueString="0" usesScalarValueType="YES"/>
         <relationship name="notebook" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Notebook" inverseName="notes" inverseEntity="Notebook"/>
         <relationship name="attachments" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Attachment" inverseName="note" inverseEntity="Attachment"/>
+        <relationship name="versions" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="NoteVersion" inverseName="note" inverseEntity="NoteVersion"/>
     </entity>
     <entity name="Attachment" representedClassName="Attachment" syncable="YES" codeGenerationType="class">
         <attribute name="uuid" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
         <attribute name="imageData" optional="YES" attributeType="Binary" allowsExternalBinaryDataStorage="YES"/>
         <attribute name="createdAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <relationship name="note" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Note" inverseName="attachments" inverseEntity="Note"/>
+    </entity>
+    <entity name="NoteVersion" representedClassName="NoteVersion" syncable="YES" codeGenerationType="class">
+        <attribute name="uuid" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="title" optional="YES" attributeType="String"/>
+        <attribute name="body" optional="YES" attributeType="Binary"/>
+        <attribute name="plainText" optional="YES" attributeType="String"/>
+        <attribute name="author" optional="YES" attributeType="String"/>
+        <attribute name="createdAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <relationship name="note" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Note" inverseName="versions" inverseEntity="Note"/>
     </entity>
     <entity name="TripItem" representedClassName="TripItem" syncable="YES" codeGenerationType="class">
         <attribute name="uuid" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>

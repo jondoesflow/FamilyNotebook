@@ -80,7 +80,7 @@ struct TripView: View {
 
     private var hero: some View {
         ZStack(alignment: .bottomLeading) {
-            CoverArt(style: notebook.cover, photo: notebook.coverPhoto)
+            CoverArt(cover: notebook.cover, photo: notebook.coverPhoto)
                 .frame(height: 190)
                 .frame(maxWidth: .infinity)
                 .clipped()

@@ -6,6 +6,7 @@ struct NotebookView: View {
     @EnvironmentObject private var persistence: Persistence
     @State private var editing = false
     @State private var sharingError: String?
+    @State private var settingPin = false
 
     var body: some View {
         Group {
@@ -38,8 +39,15 @@ struct NotebookView: View {
                     if persistence.canEdit(notebook) {
                         Button("Edit cover & title", systemImage: "paintpalette") { editing = true }
                     }
-                    ShareLink(item: notebookMarkdown, preview: SharePreview(notebook.displayTitle)) {
+                    ShareLink(item: MarkdownDocument(name: notebook.displayTitle, text: notebookMarkdown), preview: SharePreview("\(notebook.displayTitle).md")) {
                         Label("Export as Markdown", systemImage: "square.and.arrow.up")
+                    }
+                    if persistence.canEdit(notebook) {
+                        if notebook.isLocked {
+                            Button("Remove PIN", systemImage: "lock.open") { notebook.pinHash = nil; persistence.save() }
+                        } else {
+                            Button("Protect with PIN", systemImage: "lock") { settingPin = true }
+                        }
                     }
                     Button(notebook.isArchived ? "Take off the shelf" : "Put on the shelf", systemImage: "books.vertical") {
                         notebook.isArchived.toggle()
@@ -49,6 +57,12 @@ struct NotebookView: View {
             }
         }
         .sheet(isPresented: $editing) { NotebookFormView(notebook: notebook) }
+        .sheet(isPresented: $settingPin) {
+            PinSetupSheet(title: "Protect “\(notebook.displayTitle)”", lockID: notebook.uuid?.uuidString ?? "") { hash in
+                notebook.pinHash = hash
+                persistence.save()
+            }
+        }
         .alert("Couldn't share", isPresented: Binding(get: { sharingError != nil }, set: { if !$0 { sharingError = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -70,7 +84,7 @@ struct NotebookBanner: View {
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 18) {
-            NotebookCover(style: notebook.cover, photo: notebook.coverPhoto)
+            NotebookCover(cover: notebook.cover, photo: notebook.coverPhoto)
                 .frame(width: 84)
             VStack(alignment: .leading, spacing: 6) {
                 Text(notebook.notebookKind.name.uppercased())
@@ -105,30 +119,48 @@ struct NotesListView: View {
                               animation: .spring)
     }
 
+    private let columns = [GridItem(.adaptive(minimum: 160, maximum: 240), spacing: 16, alignment: .top)]
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 20) {
                 NotebookBanner(notebook: notebook, subtitle: notebook.subtitle)
+                if persistence.canEdit(notebook) {
+                    Button {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        openNote = Note.create(in: notebook)
+                        persistence.save()
+                    } label: {
+                        Label("Write", systemImage: "plus")
+                            .font(.headline)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 26)
+                            .padding(.vertical, 13)
+                            .background(Theme.accent, in: Capsule())
+                    }
+                    .buttonStyle(PressableStyle())
+                }
+                Divider().overlay(Theme.hairline)
                 if notes.isEmpty {
                     VStack(spacing: 12) {
                         Image(systemName: "square.and.pencil")
                             .font(.largeTitle)
                             .foregroundStyle(Theme.inkTertiary)
                         Text("A blank page").font(Theme.display(22)).foregroundStyle(Theme.ink)
-                        Text("Nothing in the way. Tap below to start.")
+                        Text("Nothing in the way. Tap Write to start.")
                             .font(Theme.serif(.body)).foregroundStyle(Theme.inkSecondary)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 50)
                 }
-                LazyVStack(spacing: 12) {
+                LazyVGrid(columns: columns, spacing: 18) {
                     ForEach(notes) { note in
                         NavigationLink(value: Route.note(note)) {
-                            NoteRow(note: note)
+                            PaperSheet(note: note)
                         }
                         .buttonStyle(PressableStyle())
                         .contextMenu {
-                            Button(note.isPinned ? "Unpin" : "Pin to top", systemImage: note.isPinned ? "pin.slash" : "pin") {
+                            Button(note.isPinned ? "Unpin" : "Pin to the top", systemImage: note.isPinned ? "pin.slash" : "pin") {
                                 note.isPinned.toggle(); persistence.save()
                             }
                             Button("Move to Trash", systemImage: "trash", role: .destructive) {
@@ -139,19 +171,75 @@ struct NotesListView: View {
                 }
             }
             .padding(.horizontal, 20)
-            .padding(.bottom, 120)
-            .frame(maxWidth: 760)
+            .padding(.bottom, 60)
+            .frame(maxWidth: 900)
             .frame(maxWidth: .infinity)
         }
-        .overlay(alignment: .bottom) {
-            if persistence.canEdit(notebook) {
-                FloatingNewButton(title: "New note", tint: Theme.accent) {
-                    openNote = Note.create(in: notebook)
-                    persistence.save()
+        .navigationDestination(item: $openNote) { NoteEditorView(note: $0) }
+    }
+}
+
+/// A note as a sheet of lined paper (always paper-coloured, even in dark mode — like the real thing).
+struct PaperSheet: View {
+    @ObservedObject var note: Note
+
+    private let paper = Color(hex: 0xF4F1EA)
+    private let inkColor = Color(hex: 0x23211E)
+    private let rule = Color(hex: 0xD9D4CA)
+    private let lineHeight: CGFloat = 22
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top) {
+                Text(note.displayTitle)
+                    .font(.system(.headline, design: .default, weight: .bold))
+                    .foregroundStyle(inkColor)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: 4)
+                if note.isPinned { Image(systemName: "pin.fill").font(.caption2).foregroundStyle(Theme.accent) }
+            }
+            ZStack(alignment: .topLeading) {
+                VStack(spacing: lineHeight - 1) {
+                    ForEach(0..<8, id: \.self) { _ in Rectangle().fill(rule).frame(height: 1) }
+                }
+                .padding(.top, lineHeight - 3)
+                if note.pinHash != nil {
+                    Label("Locked", systemImage: "lock.fill")
+                        .font(.system(size: 14, design: .serif))
+                        .foregroundStyle(Color(hex: 0x6E6A64))
+                } else if let first = note.sortedAttachments.first?.imageData, let img = UIImage(data: first), note.excerpt.isEmpty {
+                    Image(uiImage: img).resizable().scaledToFill()
+                        .frame(height: lineHeight * 6).frame(maxWidth: .infinity).clipped()
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                } else {
+                    Text(note.excerpt)
+                        .font(.system(size: 15, design: .serif))
+                        .foregroundStyle(Color(hex: 0x4A4640))
+                        .lineSpacing(lineHeight - 15 - 3.5)
+                        .lineLimit(8)
+                        .multilineTextAlignment(.leading)
                 }
             }
+            .frame(height: lineHeight * 8 + 4, alignment: .top)
+            .clipped()
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 5) {
+                    Avatar(name: note.lastEditor, size: 14)
+                    Text(note.updatedAt?.relativeShort ?? "")
+                    if note.hasDrawing { Image(systemName: "scribble") }
+                    if (note.attachments?.count ?? 0) > 0 { Image(systemName: "photo") }
+                }
+                Text(note.entryDate.map { $0.formatted(.dateTime.weekday(.wide).day().month()) } ?? "\(note.readingMinutes) min read")
+            }
+            .font(.caption)
+            .foregroundStyle(Color(hex: 0x6E6A64))
         }
-        .navigationDestination(item: $openNote) { NoteEditorView(note: $0) }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(paper, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+        .shadow(color: .black.opacity(0.08), radius: 1, y: 1)
+        .shadow(color: .black.opacity(0.10), radius: 12, y: 6)
     }
 }
 

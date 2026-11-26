@@ -12,7 +12,7 @@ struct NotebookFormView: View {
 
     @State private var title = ""
     @State private var kind: NotebookKind = .notes
-    @State private var cover: CoverStyle = .midnight
+    @State private var cover: Cover = .named("night-peaks")
     @State private var photo: Data?
     @State private var photoItem: PhotosPickerItem?
     @State private var tripStart = Calendar.current.date(byAdding: .day, value: 30, to: .now)!
@@ -27,7 +27,7 @@ struct NotebookFormView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 28) {
-                    NotebookCover(style: cover, photo: photo, title: title.isEmpty ? nil : title, showLabel: !title.isEmpty)
+                    NotebookCover(cover: cover, photo: photo, title: title.isEmpty ? nil : title, showLabel: !title.isEmpty)
                         .frame(width: 150)
                         .rotation3DEffect(.degrees(-8), axis: (x: 0, y: 1, z: 0))
                         .padding(.top, 12)
@@ -75,36 +75,28 @@ struct NotebookFormView: View {
 
     private var kindPicker: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("What is it?").font(.headline).foregroundStyle(Theme.ink)
-            ForEach(NotebookKind.allCases) { k in
-                Button {
-                    withAnimation(.snappy) { kind = k }
-                } label: {
-                    HStack(spacing: 14) {
-                        Image(systemName: k.symbol)
-                            .font(.headline)
-                            .foregroundStyle(k.tint)
-                            .frame(width: 40, height: 40)
-                            .background(k.tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(k == .notes ? "Notebook" : "A \(k.name.lowercased())")
-                                .font(Theme.serif(.headline, weight: .semibold))
-                                .foregroundStyle(Theme.ink)
-                            Text(k.blurb).font(.subheadline).foregroundStyle(Theme.inkSecondary)
-                        }
-                        Spacer()
-                        Image(systemName: kind == k ? "checkmark.circle.fill" : "circle")
-                            .font(.title3)
-                            .foregroundStyle(kind == k ? k.tint : Theme.inkTertiary)
+            Text("Type").font(.subheadline.weight(.medium)).foregroundStyle(Theme.inkSecondary)
+            HStack(spacing: 8) {
+                ForEach(NotebookKind.allCases) { k in
+                    Button {
+                        withAnimation(.snappy) { kind = k }
+                        UISelectionFeedbackGenerator().selectionChanged()
+                    } label: {
+                        Label(k.name, systemImage: k.symbol)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(kind == k ? .white : Theme.ink)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .background(kind == k ? k.tint : .clear, in: Capsule())
+                            .overlay(Capsule().strokeBorder(kind == k ? .clear : Theme.hairline, lineWidth: 1.2))
                     }
-                    .padding(14)
-                    .card(radius: 18)
-                    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .strokeBorder(kind == k ? k.tint : .clear, lineWidth: 1.5))
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
+            Text(kind.blurb).font(.subheadline).foregroundStyle(Theme.inkSecondary)
+                .contentTransition(.opacity)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var tripFields: some View {
@@ -129,32 +121,59 @@ struct NotebookFormView: View {
     }
 
     private var coverPicker: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Cover").font(.headline).foregroundStyle(Theme.ink)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 68), spacing: 14)], spacing: 16) {
-                PhotosPicker(selection: $photoItem, matching: .images) {
-                    ZStack {
-                        if let photo, cover == .photo {
-                            NotebookCover(style: .photo, photo: photo)
-                        } else {
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Theme.card)
-                                .aspectRatio(0.72, contentMode: .fit)
-                                .overlay(Image(systemName: "photo.badge.plus").font(.title3).foregroundStyle(Theme.inkSecondary))
+        LazyVStack(alignment: .leading, spacing: 14, pinnedViews: []) {
+            ForEach(CoverCategory.allCases) { category in
+                Text(category.title.uppercased())
+                    .font(.caption.weight(.semibold))
+                    .tracking(1.4)
+                    .foregroundStyle(Theme.inkSecondary)
+                    .padding(.top, 10)
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 58, maximum: 80), spacing: 12)], spacing: 14) {
+                    ForEach(Cover.covers(in: category)) { c in
+                        Button {
+                            withAnimation(.spring) { cover = c }
+                            UISelectionFeedbackGenerator().selectionChanged()
+                        } label: {
+                            NotebookCover(cover: c)
+                                .overlay(selectionRing(cover == c))
+                                .overlay(alignment: .topTrailing) {
+                                    if cover == c {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .font(.body)
+                                            .foregroundStyle(.white, Theme.accent)
+                                            .offset(x: 8, y: -8)
+                                    }
+                                }
                         }
+                        .buttonStyle(PressableStyle())
+                        .accessibilityLabel(c.id.replacingOccurrences(of: "-", with: " "))
                     }
-                    .overlay(selectionRing(cover == .photo))
                 }
-                ForEach(CoverStyle.illustrated) { style in
-                    Button {
-                        withAnimation(.spring) { cover = style }
-                        UISelectionFeedbackGenerator().selectionChanged()
-                    } label: {
-                        NotebookCover(style: style).overlay(selectionRing(cover == style))
+            }
+            Text("YOUR IMAGE")
+                .font(.caption.weight(.semibold))
+                .tracking(1.4)
+                .foregroundStyle(Theme.inkSecondary)
+                .padding(.top, 10)
+            PhotosPicker(selection: $photoItem, matching: .images) {
+                ZStack {
+                    if let photo, cover == .photo {
+                        NotebookCover(cover: .photo, photo: photo)
+                    } else {
+                        RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(Theme.inkTertiary, style: StrokeStyle(lineWidth: 1.2, dash: [5, 4]))
+                            .aspectRatio(0.72, contentMode: .fit)
+                            .overlay {
+                                VStack(spacing: 6) {
+                                    Image(systemName: "square.and.arrow.up").font(.title3)
+                                    Text("Upload").font(.caption)
+                                }
+                                .foregroundStyle(Theme.inkSecondary)
+                            }
                     }
-                    .buttonStyle(PressableStyle())
-                    .accessibilityLabel(style.name)
                 }
+                .frame(width: 72)
+                .overlay(selectionRing(cover == .photo))
             }
         }
     }
@@ -167,7 +186,7 @@ struct NotebookFormView: View {
 
     private func load() {
         guard let nb = notebook else {
-            cover = CoverStyle.illustrated.randomElement() ?? .midnight
+            cover = Cover.randomIllustrated
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { titleFocused = true }
             return
         }

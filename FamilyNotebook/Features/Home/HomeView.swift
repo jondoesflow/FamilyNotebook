@@ -29,6 +29,7 @@ struct HomeView: View {
     @State private var showNew = false
     @State private var editing: Notebook?
     @State private var deleting: Notebook?
+    @State private var pinTarget: Notebook?
     @Namespace private var zoom
 
     private let columns = [GridItem(.adaptive(minimum: 150, maximum: 220), spacing: 22, alignment: .top)]
@@ -83,6 +84,12 @@ struct HomeView: View {
                 }
             }
             .sheet(item: $editing) { nb in NotebookFormView(notebook: nb) }
+            .sheet(item: $pinTarget) { nb in
+                PinSetupSheet(title: "Protect “\(nb.displayTitle)”", lockID: nb.uuid?.uuidString ?? "") { hash in
+                    nb.pinHash = hash
+                    persistence.save()
+                }
+            }
             .confirmationDialog("Delete this notebook and everything in it?",
                                 isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
                                 titleVisibility: .visible) {
@@ -169,9 +176,8 @@ struct HomeView: View {
             nb.sortIndex = (notebooks.map(\.sortIndex).min() ?? 0) - 1
             persistence.save()
         }
-        Button(nb.isLocked ? "Remove lock" : "Lock with Face ID", systemImage: nb.isLocked ? "lock.open" : "lock") {
-            nb.isLocked.toggle()
-            persistence.save()
+        if !nb.isLocked && canEdit {
+            Button("Protect with PIN", systemImage: "lock") { pinTarget = nb }
         }
         Button("Put on the shelf", systemImage: "books.vertical") {
             withAnimation(.spring) { nb.isArchived = true; persistence.save() }
@@ -193,7 +199,7 @@ struct HomeView: View {
                     HStack(alignment: .bottom, spacing: 3) {
                         ForEach(Array(archived.enumerated()), id: \.element.objectID) { idx, nb in
                             Button { path.append(Route.notebook(nb)) } label: {
-                                NotebookSpine(style: nb.cover, photo: nb.coverPhoto, title: nb.displayTitle,
+                                NotebookSpine(cover: nb.cover, photo: nb.coverPhoto, title: nb.displayTitle,
                                               height: 132 + CGFloat((idx * 37) % 5) * 6)
                             }
                             .buttonStyle(PressableStyle())
@@ -222,7 +228,7 @@ struct NotebookTile: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            NotebookCover(style: notebook.cover, photo: notebook.coverPhoto)
+            NotebookCover(cover: notebook.cover, photo: notebook.coverPhoto)
                 .overlay(alignment: .topTrailing) { badges.padding(10) }
                 .overlay(alignment: .bottomLeading) {
                     if notebook.notebookKind != .notes {
@@ -317,8 +323,8 @@ struct EmptyShelf: View {
     var body: some View {
         VStack(spacing: 20) {
             ZStack {
-                ForEach(Array([CoverStyle.blush, .map, .midnight, .lemons, .monstera].enumerated()), id: \.offset) { i, s in
-                    NotebookCover(style: s)
+                ForEach(Array(["camper", "coffee", "night-peaks", "lemons", "monstera"].map(Cover.named).enumerated()), id: \.offset) { i, s in
+                    NotebookCover(cover: s)
                         .frame(width: i == 2 ? 104 : 92)
                         .rotationEffect(.degrees(Double(i - 2) * 9))
                         .offset(x: CGFloat(i - 2) * 46, y: abs(CGFloat(i - 2)) * 8)

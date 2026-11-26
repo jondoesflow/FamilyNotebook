@@ -10,9 +10,9 @@ struct WhoAreYouView: View {
         VStack(spacing: 28) {
             Spacer()
             ZStack {
-                NotebookCover(style: .blush).frame(width: 110).rotationEffect(.degrees(-14)).offset(x: -70, y: 10)
-                NotebookCover(style: .lemons).frame(width: 110).rotationEffect(.degrees(12)).offset(x: 70, y: 10)
-                NotebookCover(style: .midnight).frame(width: 124)
+                NotebookCover(cover: .named("rocket")).frame(width: 110).rotationEffect(.degrees(-14)).offset(x: -70, y: 10)
+                NotebookCover(cover: .named("lemons")).frame(width: 110).rotationEffect(.degrees(12)).offset(x: 70, y: 10)
+                NotebookCover(cover: .named("night-peaks")).frame(width: 124)
             }
             .scaleEffect(appeared ? 1 : 0.85)
             .opacity(appeared ? 1 : 0)

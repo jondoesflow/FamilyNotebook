@@ -49,7 +49,9 @@ extension Notebook {
         return t.isEmpty ? "Untitled" : t
     }
 
-    var cover: CoverStyle { CoverStyle(rawValue: coverID ?? "") ?? .midnight }
+    var cover: Cover { Cover.find(coverID) }
+
+    var isLocked: Bool { pinHash != nil }
 
     var liveNotes: [Note] {
         ((notes as? Set<Note>) ?? []).filter { $0.trashedAt == nil }
@@ -84,7 +86,7 @@ extension Notebook {
     }
 
     @discardableResult
-    static func create(in context: NSManagedObjectContext, title: String, kind: NotebookKind, cover: CoverStyle) -> Notebook {
+    static func create(in context: NSManagedObjectContext, title: String, kind: NotebookKind, cover: Cover) -> Notebook {
         let nb = Notebook(context: context)
         nb.uuid = UUID()
         nb.title = title
@@ -332,5 +334,72 @@ enum Trip {
 
     static func money(_ value: Double, _ code: String) -> String {
         value.formatted(.currency(code: code).precision(.fractionLength(value.rounded() == value ? 0 : 2)))
+    }
+}
+
+// MARK: - Versions & moving
+
+extension Note {
+    var sortedVersions: [NoteVersion] {
+        ((versions as? Set<NoteVersion>) ?? []).sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
+    }
+
+    /// Saves how the note looks right now as a version, unless nothing changed since the last one.
+    func snapshot(maxVersions: Int = 50) {
+        guard let context = managedObjectContext else { return }
+        let latest = sortedVersions.first
+        if latest?.body == body && latest?.title == title { return }
+        if (plainText ?? "").isEmpty && (title ?? "").isEmpty && latest == nil { return }
+        let v = NoteVersion(context: context)
+        Persistence.shared.assign(v, alongside: self)
+        v.uuid = UUID()
+        v.title = title
+        v.body = body
+        v.plainText = plainText
+        v.author = People.me
+        v.createdAt = .now
+        v.note = self
+        for old in sortedVersions.dropFirst(maxVersions) { context.delete(old) }
+    }
+
+    func restore(_ version: NoteVersion) {
+        snapshot()
+        title = version.title
+        body = version.body
+        plainText = version.plainText
+        touch()
+        snapshot()
+    }
+
+    /// Moves the note to another notebook. Notes can't hop between iCloud stores (your own
+    /// notebooks vs. ones shared with you), so in that case we copy it across and delete the original.
+    @discardableResult
+    func move(to target: Notebook) -> Note {
+        guard let context = managedObjectContext else { return self }
+        if target.objectID.persistentStore == objectID.persistentStore {
+            notebook?.updatedAt = .now
+            notebook = target
+            target.updatedAt = .now
+            entryDate = target.notebookKind == .journal ? (entryDate ?? Calendar.current.startOfDay(for: createdAt ?? .now)) : nil
+            return self
+        }
+        let copy = Note.create(in: target, title: title ?? "")
+        copy.body = body
+        copy.plainText = plainText
+        copy.drawing = drawing
+        copy.isPinned = isPinned
+        copy.pinHash = nil
+        copy.createdAt = createdAt
+        copy.entryDate = target.notebookKind == .journal ? (entryDate ?? Calendar.current.startOfDay(for: createdAt ?? .now)) : nil
+        for att in sortedAttachments {
+            let a = Attachment(context: context)
+            Persistence.shared.assign(a, alongside: target)
+            a.uuid = UUID()
+            a.createdAt = att.createdAt
+            a.imageData = att.imageData
+            a.note = copy
+        }
+        context.delete(self)
+        return copy
     }
 }

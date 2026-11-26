@@ -10,11 +10,15 @@ struct RichRun: Codable, Equatable {
     var s: Bool? = nil   // strikethrough
     var h: Bool? = nil   // heading
     var q: Bool? = nil   // quote
+    var c: Bool? = nil   // code block
+    var d: Bool? = nil   // divider
 }
 
 extension NSAttributedString.Key {
     static let nbHeading = NSAttributedString.Key("nb.heading")
     static let nbQuote = NSAttributedString.Key("nb.quote")
+    static let nbCode = NSAttributedString.Key("nb.code")
+    static let nbDivider = NSAttributedString.Key("nb.divider")
 }
 
 enum Typography {
@@ -32,8 +36,23 @@ enum Typography {
         return UIFont(descriptor: descriptor, size: size)
     }
 
-    static func paragraph(heading: Bool, quote: Bool) -> NSParagraphStyle {
+    static let dividerText = "✦   ✦   ✦"
+
+    static func paragraph(heading: Bool, quote: Bool, code: Bool = false, divider: Bool = false) -> NSParagraphStyle {
         let p = NSMutableParagraphStyle()
+        if divider {
+            p.alignment = .center
+            p.paragraphSpacing = 14
+            p.paragraphSpacingBefore = 6
+            return p
+        }
+        if code {
+            p.lineSpacing = 3
+            p.paragraphSpacing = 2
+            p.firstLineHeadIndent = 12
+            p.headIndent = 12
+            return p
+        }
         p.lineSpacing = heading ? 2 : 5
         p.paragraphSpacing = heading ? 6 : 8
         if quote {
@@ -44,7 +63,22 @@ enum Typography {
     }
 
     static func attributes(bold: Bool = false, italic: Bool = false, underline: Bool = false,
-                           strike: Bool = false, heading: Bool = false, quote: Bool = false) -> [NSAttributedString.Key: Any] {
+                           strike: Bool = false, heading: Bool = false, quote: Bool = false,
+                           code: Bool = false, divider: Bool = false) -> [NSAttributedString.Key: Any] {
+        if code {
+            return [.font: UIFont.monospacedSystemFont(ofSize: 15, weight: .regular),
+                    .foregroundColor: Theme.uiInk,
+                    .backgroundColor: Theme.uiDynamic(0xEFEBE3, 0x2A2926),
+                    .paragraphStyle: paragraph(heading: false, quote: false, code: true),
+                    .nbCode: true]
+        }
+        if divider {
+            return [.font: UIFont.systemFont(ofSize: 14, weight: .regular),
+                    .foregroundColor: Theme.uiInkSecondary,
+                    .kern: 2,
+                    .paragraphStyle: paragraph(heading: false, quote: false, divider: true),
+                    .nbDivider: true]
+        }
         var a: [NSAttributedString.Key: Any] = [
             .font: font(bold: bold, italic: italic || quote, heading: heading),
             .foregroundColor: quote ? Theme.uiInkSecondary : Theme.uiInk,
@@ -73,7 +107,19 @@ enum RichTextCodec {
             let traits = font?.fontDescriptor.symbolicTraits ?? []
             let heading = (attrs[.nbHeading] as? Bool) ?? false
             let quote = (attrs[.nbQuote] as? Bool) ?? false
+            let code = (attrs[.nbCode] as? Bool) ?? false
+            let divider = (attrs[.nbDivider] as? Bool) ?? false
             var run = RichRun(text: text)
+            if code || divider {
+                if code { run.c = true } else { run.d = true }
+                if var last = runs.last, last.c == run.c, last.d == run.d {
+                    last.text += run.text
+                    runs[runs.count - 1] = last
+                } else {
+                    runs.append(run)
+                }
+                return
+            }
             if traits.contains(.traitBold) && !heading { run.b = true }
             if traits.contains(.traitItalic) && !quote { run.i = true }
             if ((attrs[.underlineStyle] as? Int) ?? 0) != 0 { run.u = true }
@@ -81,7 +127,7 @@ enum RichTextCodec {
             if heading { run.h = true }
             if quote { run.q = true }
             if var last = runs.last, last.b == run.b, last.i == run.i, last.u == run.u,
-               last.s == run.s, last.h == run.h, last.q == run.q {
+               last.s == run.s, last.h == run.h, last.q == run.q, last.c == nil, last.d == nil {
                 last.text += run.text
                 runs[runs.count - 1] = last
             } else {
@@ -96,7 +142,8 @@ enum RichTextCodec {
         for r in runs {
             out.append(NSAttributedString(string: r.text, attributes: Typography.attributes(
                 bold: r.b ?? false, italic: r.i ?? false, underline: r.u ?? false,
-                strike: r.s ?? false, heading: r.h ?? false, quote: r.q ?? false)))
+                strike: r.s ?? false, heading: r.h ?? false, quote: r.q ?? false,
+                code: r.c ?? false, divider: r.d ?? false)))
         }
         decorate(out)
         return out
@@ -143,7 +190,20 @@ enum RichTextCodec {
     static func markdown(from runs: [RichRun]) -> String {
         // Rebuild line by line so headings/quotes get their prefixes once per paragraph.
         var lines: [(String, Bool, Bool)] = [("", false, false)]
+        var codeLines: Set<Int> = []
+        var dividerLines: Set<Int> = []
         for r in runs {
+            if r.c == true || r.d == true {
+                let parts = r.text.components(separatedBy: "\n")
+                for (idx, part) in parts.enumerated() {
+                    if idx > 0 { lines.append(("", false, false)) }
+                    lines[lines.count - 1].0 += part
+                    if !part.isEmpty || idx == 0 {
+                        if r.c == true { codeLines.insert(lines.count - 1) } else { dividerLines.insert(lines.count - 1) }
+                    }
+                }
+                continue
+            }
             var text = r.text
             if r.b == true { text = wrap(text, "**") }
             if r.i == true { text = wrap(text, "_") }
@@ -156,7 +216,23 @@ enum RichTextCodec {
                 if r.q == true { lines[lines.count - 1].2 = true }
             }
         }
-        return lines.map { line, heading, quote in
+        var out: [String] = []
+        var inCode = false
+        for (i, line) in lines.enumerated() {
+            let isCode = codeLines.contains(i) && !line.0.isEmpty
+            if isCode && !inCode { out.append("```"); inCode = true }
+            if !isCode && inCode { out.append("```"); inCode = false }
+            if isCode { out.append(line.0); continue }
+            if dividerLines.contains(i) && !line.0.isEmpty { out.append("---"); continue }
+            out.append(mdLine(line))
+        }
+        if inCode { out.append("```") }
+        return out.joined(separator: "\n")
+    }
+
+    private static func mdLine(_ t: (String, Bool, Bool)) -> String {
+        let (line, heading, quote) = t
+        do {
             var l = line
             if l.hasPrefix(unchecked + " ") { l = "- [ ] " + l.dropFirst(2) }
             else if l.hasPrefix(checked + " ") { l = "- [x] " + l.dropFirst(2) }
@@ -164,7 +240,7 @@ enum RichTextCodec {
             if heading && !l.isEmpty { l = "## " + l }
             if quote && !l.isEmpty { l = "> " + l }
             return l
-        }.joined(separator: "\n")
+        }
     }
 
     private static func wrap(_ text: String, _ marker: String) -> String {

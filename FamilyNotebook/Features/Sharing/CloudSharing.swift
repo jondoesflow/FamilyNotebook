@@ -47,7 +47,7 @@ final class SharingDelegate: NSObject, UICloudSharingControllerDelegate {
     func itemTitle(for csc: UICloudSharingController) -> String? { notebook.displayTitle }
 
     func itemThumbnailData(for csc: UICloudSharingController) -> Data? {
-        let renderer = ImageRenderer(content: NotebookCover(style: notebook.cover, photo: notebook.coverPhoto).frame(width: 120, height: 166))
+        let renderer = ImageRenderer(content: NotebookCover(cover: notebook.cover, photo: notebook.coverPhoto).frame(width: 120, height: 166))
         renderer.scale = 2
         return renderer.uiImage?.pngData()
     }

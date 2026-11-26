@@ -3,9 +3,14 @@ import UIKit
 
 /// A calm, menu-free writing surface: format with the bar above the keyboard,
 /// tap ☐ to tick a to-do, and lists continue when you press return.
+enum EditorInsert {
+    case sketch, photo
+}
+
 struct RichTextEditor: UIViewRepresentable {
     @Binding var text: NSAttributedString
     var isEditable: Bool = true
+    var onInsert: (EditorInsert) -> Void = { _ in }
     var onFocusChange: (Bool) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -81,6 +86,13 @@ struct RichTextEditor: UIViewRepresentable {
             let ns = textView.textStorage.string as NSString
             let para = ns.paragraphRange(for: NSRange(location: range.location, length: 0))
             let line = ns.substring(with: para).trimmingCharacters(in: .newlines)
+            if (textView.typingAttributes[.nbCode] as? Bool) == true, line.isEmpty {
+                // Return on an empty code line leaves the code block.
+                if para.length > 0 { textView.textStorage.setAttributes(Typography.typing, range: para) }
+                textView.typingAttributes = Typography.typing
+                textViewDidChange(textView)
+                return false
+            }
             let prefixes = [RichTextCodec.unchecked, RichTextCodec.checked, RichTextCodec.bullet]
             guard let prefix = prefixes.first(where: { line.hasPrefix($0 + " ") }) else {
                 // Leaving a heading returns to body text.
@@ -161,48 +173,121 @@ struct RichTextEditor: UIViewRepresentable {
 
         // MARK: Toolbar
 
-        func makeToolbar() -> UIView {
-            let bar = UIInputView(frame: CGRect(x: 0, y: 0, width: 320, height: 48), inputViewStyle: .keyboard)
-            bar.allowsSelfSizing = true
-            let stack = UIStackView()
+        private var formatStack: UIStackView?
+        private var insertStack: UIStackView?
+
+        private func makeButton(_ key: String, _ symbol: String, _ action: Selector, tint: UIColor = Theme.uiInk, circled: Bool = false) -> UIButton {
+            let b = UIButton(type: .system)
+            var config = UIButton.Configuration.plain()
+            config.image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .medium))
+            config.baseForegroundColor = tint
+            config.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8)
+            config.background.cornerRadius = 18
+            if circled {
+                config.background.strokeColor = tint.withAlphaComponent(0.7)
+                config.background.strokeWidth = 1.2
+                config.cornerStyle = .capsule
+            }
+            b.configuration = config
+            b.addTarget(self, action: action, for: .touchUpInside)
+            b.accessibilityLabel = key
+            buttons[key] = b
+            return b
+        }
+
+        private func makeStack(_ views: [UIView]) -> UIStackView {
+            let stack = UIStackView(arrangedSubviews: views)
             stack.axis = .horizontal
             stack.distribution = .equalSpacing
             stack.alignment = .center
             stack.translatesAutoresizingMaskIntoConstraints = false
+            return stack
+        }
 
-            let items: [(String, String, Selector)] = [
-                ("bold", "bold", #selector(toggleBold)),
-                ("italic", "italic", #selector(toggleItalic)),
-                ("underline", "underline", #selector(toggleUnderline)),
-                ("strike", "strikethrough", #selector(toggleStrike)),
-                ("heading", "textformat.size.larger", #selector(toggleHeading)),
-                ("quote", "text.quote", #selector(toggleQuote)),
-                ("bullet", "list.bullet", #selector(toggleBullet)),
-                ("check", "checklist", #selector(toggleChecklist)),
-                ("done", "keyboard.chevron.compact.down", #selector(dismiss)),
-            ]
-            for (key, symbol, action) in items {
-                let b = UIButton(type: .system)
-                var config = UIButton.Configuration.plain()
-                config.image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .medium))
-                config.baseForegroundColor = Theme.uiInk
-                config.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8)
-                config.background.cornerRadius = 8
-                b.configuration = config
-                b.addTarget(self, action: action, for: .touchUpInside)
-                b.accessibilityLabel = key
-                buttons[key] = b
-                stack.addArrangedSubview(b)
-            }
-            bar.addSubview(stack)
-            NSLayoutConstraint.activate([
-                stack.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 8),
-                stack.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -8),
-                stack.topAnchor.constraint(equalTo: bar.topAnchor, constant: 2),
-                stack.bottomAnchor.constraint(equalTo: bar.bottomAnchor, constant: -2),
-                bar.heightAnchor.constraint(equalToConstant: 48),
+        func makeToolbar() -> UIView {
+            let bar = UIInputView(frame: CGRect(x: 0, y: 0, width: 320, height: 50), inputViewStyle: .keyboard)
+            bar.allowsSelfSizing = true
+
+            let format = makeStack([
+                makeButton("insert", "plus", #selector(showInsert), tint: Theme.uiAccent, circled: true),
+                makeButton("bold", "bold", #selector(toggleBold)),
+                makeButton("italic", "italic", #selector(toggleItalic)),
+                makeButton("underline", "underline", #selector(toggleUnderline)),
+                makeButton("strike", "strikethrough", #selector(toggleStrike)),
+                makeButton("heading", "textformat.size.larger", #selector(toggleHeading)),
+                makeButton("quote", "text.quote", #selector(toggleQuote)),
+                makeButton("done", "keyboard.chevron.compact.down", #selector(dismiss)),
             ])
+            let accent = Theme.uiAccent
+            let insert = makeStack([
+                makeButton("close", "xmark", #selector(showFormat), circled: true),
+                makeButton("Sketch", "pencil.tip", #selector(insertSketch), tint: accent, circled: true),
+                makeButton("Photo", "photo", #selector(insertPhoto), tint: accent, circled: true),
+                makeButton("Divider", "ellipsis", #selector(insertDivider), tint: accent, circled: true),
+                makeButton("Code", "chevron.left.forwardslash.chevron.right", #selector(toggleCode), tint: accent, circled: true),
+                makeButton("Bullet list", "list.bullet", #selector(toggleBullet), tint: accent, circled: true),
+                makeButton("Checklist", "checklist", #selector(toggleChecklist), tint: accent, circled: true),
+            ])
+            insert.isHidden = true
+            for stack in [format, insert] {
+                bar.addSubview(stack)
+                NSLayoutConstraint.activate([
+                    stack.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 10),
+                    stack.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -10),
+                    stack.topAnchor.constraint(equalTo: bar.topAnchor, constant: 3),
+                    stack.bottomAnchor.constraint(equalTo: bar.bottomAnchor, constant: -3),
+                ])
+            }
+            bar.heightAnchor.constraint(equalToConstant: 50).isActive = true
+            formatStack = format
+            insertStack = insert
             return bar
+        }
+
+        @objc func showInsert() { setInsertMode(true) }
+        @objc func showFormat() { setInsertMode(false) }
+
+        private func setInsertMode(_ on: Bool) {
+            UISelectionFeedbackGenerator().selectionChanged()
+            UIView.transition(with: formatStack?.superview ?? UIView(), duration: 0.18, options: .transitionCrossDissolve) {
+                self.formatStack?.isHidden = on
+                self.insertStack?.isHidden = !on
+            }
+        }
+
+        @objc func insertSketch() {
+            setInsertMode(false)
+            textView?.resignFirstResponder()
+            parent.onInsert(.sketch)
+        }
+
+        @objc func insertPhoto() {
+            setInsertMode(false)
+            textView?.resignFirstResponder()
+            parent.onInsert(.photo)
+        }
+
+        @objc func insertDivider() {
+            guard let tv = textView else { return }
+            let ns = tv.textStorage.string as NSString
+            let sel = tv.selectedRange
+            let insertion = NSMutableAttributedString()
+            if sel.location > 0, ns.character(at: sel.location - 1) != 10 {
+                insertion.append(NSAttributedString(string: "\n", attributes: Typography.typing))
+            }
+            insertion.append(NSAttributedString(string: Typography.dividerText, attributes: Typography.attributes(divider: true)))
+            insertion.append(NSAttributedString(string: "\n", attributes: Typography.typing))
+            tv.textStorage.replaceCharacters(in: sel, with: insertion)
+            tv.selectedRange = NSRange(location: sel.location + insertion.length, length: 0)
+            tv.typingAttributes = Typography.typing
+            setInsertMode(false)
+            redecorate(tv)
+            push(tv)
+        }
+
+        @objc func toggleCode() {
+            setInsertMode(false)
+            toggleParagraph(key: .nbCode)
         }
 
         private func refreshToolbarState() {
@@ -292,7 +377,8 @@ struct RichTextEditor: UIViewRepresentable {
             let on = !((currentAttributes(tv)[key] as? Bool) ?? false)
             let heading = key == .nbHeading ? on : false
             let quote = key == .nbQuote ? on : false
-            let attrs = Typography.attributes(heading: heading, quote: quote)
+            let code = key == .nbCode ? on : false
+            let attrs = Typography.attributes(heading: heading, quote: quote, code: code)
             if para.length > 0 {
                 tv.textStorage.beginEditing()
                 tv.textStorage.setAttributes(attrs, range: para)
@@ -334,8 +420,8 @@ struct RichTextEditor: UIViewRepresentable {
             UISelectionFeedbackGenerator().selectionChanged()
         }
 
-        @objc func toggleBullet() { toggleLinePrefix(RichTextCodec.bullet) }
-        @objc func toggleChecklist() { toggleLinePrefix(RichTextCodec.unchecked) }
+        @objc func toggleBullet() { setInsertMode(false); toggleLinePrefix(RichTextCodec.bullet) }
+        @objc func toggleChecklist() { setInsertMode(false); toggleLinePrefix(RichTextCodec.unchecked) }
         @objc func dismiss() { textView?.resignFirstResponder() }
     }
 }
